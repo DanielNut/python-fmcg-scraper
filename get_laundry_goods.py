@@ -37,15 +37,18 @@ class CategoryGoods:
         self.cat_url = cat_url
         self.scraped_urls = scraped_urls
 
-    def get_subcategories(self, category_url, driver: webdriver.Firefox) -> list[str]:
+    def get_subcategories_for_normal_categories(self, category_url, driver: webdriver.Firefox) -> list[str]:
         driver.get(category_url)
-        catalog_page_div = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '#catalog > div.catalog-page__side')))
-
-        catalog_page_ul = catalog_page_div.find_element(By.CLASS_NAME,
-                                                        'sidemenu').find_element(By.TAG_NAME, 'ul')
-        catalog_li_tags = catalog_page_ul.find_elements(By.TAG_NAME, 'li')
-        catalog_li_urls = [tag.find_element(By.TAG_NAME, 'a').get_attribute('href') for tag in catalog_li_tags]
+        # catalog_li_urls = []
+        try:
+            catalog_page_div = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '#catalog > div.catalog-page__side')))
+            catalog_page_ul = catalog_page_div.find_element(By.CLASS_NAME,
+                                                            'sidemenu').find_element(By.TAG_NAME, 'ul')
+            catalog_li_tags = catalog_page_ul.find_elements(By.TAG_NAME, 'li')
+            catalog_li_urls = [tag.find_element(By.TAG_NAME, 'a').get_attribute('href') for tag in catalog_li_tags]
+        except selenium.common.exceptions.TimeoutException:
+            return []
         subcategories_urls = []
         for subcat_url in catalog_li_urls:
             try:
@@ -61,14 +64,14 @@ class CategoryGoods:
 
         return subcategories_urls
 
+    def get_subcategories_for_suspicious_categories(self, category_url: str, driver: webdriver.Firefox) -> list[str]:
+        driver.get(category_url)
+
     def get_filter_labels(self, subcategory_url: str, driver: webdriver.Firefox):
         driver.get(subcategory_url)
         try:
             buttons_div = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                 (By.CSS_SELECTOR, '.list_left_xsubject')))
-            # (By.XPATH, '/html/body/div[1]/main/div[2]/div/div/div[5]/div[2]/div[1]/div[2]/fieldset')))
-            # '.list_left_fdlvr'
-            # '.list_left_xsubject'
 
             labels = buttons_div.find_elements(By.TAG_NAME, 'label')
             return labels
@@ -92,13 +95,15 @@ class CategoryGoods:
                         add_url_to_scraped(normal_url)
                     else:
                         print(f'Такой продукт {normal_url} уже был обработан')
+                driver.get_url(prev_url)
+                scroll_page_to_bottom_selenium(driver)
                 if not turn_on_next_page_of_product_list(driver):
                     last_page = True
             except selenium.common.exceptions.TimeoutException:
                 pass
 
     def get_goods(self, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker):
-        subs_urls = self.get_subcategories(self.cat_url, driver)
+        subs_urls = self.get_subcategories_for_normal_categories(self.cat_url, driver)
         print('subs_urls = ', subs_urls)
         for sub_url in subs_urls:
             if sub_url not in self.scraped_urls:
@@ -106,9 +111,9 @@ class CategoryGoods:
                 add_dirs_to_fmcg_wildberries(dirs, yadisk_worker)
                 print('dirs = ', dirs)
 
-                filter_labels = self.get_filter_labels(sub_url, driver)
+                filter_labels_count = len(self.get_filter_labels(sub_url, driver))
 
-                for i in range(len(filter_labels)):
+                for i in range(filter_labels_count):
                     try:
                         product_data_driver = set_selenium_driver()
                         filter_labels = self.get_filter_labels(sub_url, product_data_driver)
@@ -124,19 +129,7 @@ class CategoryGoods:
                         product_data_driver.quit()
                     except IndexError:
                         pass
-                # for label in filter_labels:
-                #     filter_name = label.text
-                #     # add_filter_name_to_dirs(dirs, filter_name)
-                #     normal_filter_name = normalize_filter_name(filter_name)
-                #     product_dir = [dirs[-1] + '/' + normal_filter_name]
-                #     print('product_dir = ', product_dir)
-                #     add_dirs_to_fmcg_wildberries(product_dir, yadisk_worker)
-                #     full_product_dir = 'FMCG/Wildberries/' + dirs[-1] + '/' + normal_filter_name
-                #     self.get_goods_by_filter_of_subcategory(full_product_dir, label, yadisk_worker, product_data_driver)
-                #     product_data_driver.quit()
                 add_url_to_scraped(sub_url)
-        # for sub_url in subs_urls:
-        #     filters = self.get_filter_buttons(sub_url, driver)
 
     def get_product_data(self, driver):
         pass
@@ -168,9 +161,6 @@ def turn_on_next_page_of_product_list(driver) -> bool:
         return True
     except selenium.common.exceptions.TimeoutException:
         return False
-# def get_dirs_from_url(url: str) ->list[str]:
-#     dirs = get_directories(url)
-#     return yandex_dirs
 
 
 if __name__ == '__main__':
@@ -189,3 +179,6 @@ if __name__ == '__main__':
     laundry_goods = CategoryGoods(laundry_url, scraped_urls)
     driver = set_selenium_driver()
     laundry_goods.get_goods(driver, yadisk_worker)
+
+
+subcatalogs_to_parse = {}

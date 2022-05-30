@@ -474,7 +474,7 @@ def get_images_preview(driver):
         # driver.find_element(By.CLASS_NAME, "comments__user-photos")
     # TODO: Сделать webdriverwait
     photos_div = user_photos.find_element(By.CLASS_NAME, 'swiper-wrapper')
-    photos_div.find_element(By.CLASS_NAME, 'swiper-slide').click()
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'swiper-slide'))).click()
     # WebDriverWait(driver, 10).until(EC.presence_of_element_located(
     #     photos_div.find_element(By.CLASS_NAME, 'swiper-slide'))).click()
     # photos_div.find_element(By.CLASS_NAME, 'swiper-slide').click()
@@ -484,12 +484,11 @@ def get_images_preview(driver):
         return images_preview
     except selenium.common.exceptions.TimeoutException:
         try:
-            driver.find_elements(By.CLASS_NAME, 'swiper-slide')[1].click()
-            images_preview = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME,
-                                                                                             'thumbs-gallery__big-img')))
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'swiper-slide')))[1].click()
+            images_preview = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, 'thumbs-gallery__big-img')))
             return images_preview
-        except selenium.common.exceptions.TimeoutException:
-
+        except (selenium.common.exceptions.TimeoutException, TypeError):
             return []
 
 
@@ -541,7 +540,11 @@ def get_main_images_urls_from_product_page(driver) -> list[str]:
     image_wrapper_div = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.XPATH, '/html/body/div[1]/div/div/div[1]/div/div')))
     image_divs = image_wrapper_div.find_elements(By.CLASS_NAME, 'swiper-slide')
-    image_urls = [image_div.find_element(By.TAG_NAME, 'img').get_attribute('src') for image_div in image_divs]
+    for div in image_divs:
+        url = div.find_element(By.TAG_NAME, 'img').get_attribute('src')
+        if not url.endswith('gif'):
+            image_urls.append(url)
+    # image_urls = [image_div.find_element(By.TAG_NAME, 'img').get_attribute('src') for image_div in image_divs]
     print(image_urls)
     return image_urls
 
@@ -550,6 +553,7 @@ def add_url_to_scraped(url):
     with open('scraped_urls.csv', 'a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([f'{url}'])
+
 
 # TODO
 def get_image_by_url(image_url):
