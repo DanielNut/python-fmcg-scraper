@@ -131,13 +131,14 @@ class RequestHandler:
         try:
             time.sleep(1)
             return requests.get(url, timeout=3)
-        except requests.exceptions.ConnectionError:
+        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
             try:
                 time.sleep(1)
                 return requests.get(url, timeout=5)
-            except requests.exceptions.ConnectionError:
+            except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
                 time.sleep(2)
                 return requests.get(url, timeout=5)
+
 
 # class RequestHandler:
 #     def __init__(self):
@@ -296,7 +297,7 @@ class WildberriesParser:
     def get_products_by_category(self, category_url: str, driver) -> None:
         yandex_disk_worker = YandexDiskWorker()
 
-        self.dirs_to_append = get_directories(category_url)
+        self.dirs_to_append = get_directories_from_url(category_url)
         self.current_dir = self.main_yandex_dir + '/' + self.dirs_to_append[-1]
         for dir in self.dirs_to_append:
             yandex_disk_worker.mkdir(self.main_yandex_dir + '/' + dir)
@@ -389,7 +390,7 @@ def get_product_links_from_page(driver) -> list[str]:
     return products_urls_from_single_page
 
 
-def get_directories(category_url: str) -> list:
+def get_directories_from_url(category_url: str) -> list:
     path_list = category_url.split('/')
     after_catalog = False
     path = []
@@ -464,23 +465,31 @@ def get_photos_links_from_comments_of_product_page_wildberries(driver):
 
 def get_images_preview(driver):
     try:
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 2).until(
             EC.presence_of_element_located((By.XPATH,
                                             '/html/body/div[1]/main/div[2]/div/div/section[2]/div[3]/div['
                                             '2]/div/section/div/div/div/div[1]'))).click()
-        images_preview = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME,
+        images_preview = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME,
                                                                                          'thumbs-gallery__big-img')))
         return images_preview
     except selenium.common.exceptions.TimeoutException:
         try:
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located(
+            WebDriverWait(driver, 2).until(EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'div.swiper-slide:nth-child(1)'))).click()
-            images_preview = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CLASS_NAME, 'thumbs-gallery__big-img')))
+            images_preview = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '.thumbs-gallery__big-img')))
             return images_preview
-        except selenium.common.exceptions.TimeoutException as e:
-            print(f'Функция get_images_preview кинула пустой массив с ошибкой {e}')
-            return []
+        except selenium.common.exceptions.TimeoutException:
+            try:
+                WebDriverWait(driver, 2).until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, '#Comments > div > section > div > div > div > '
+                                      'div.swiper-slide.img-plug.swiper-slide-active'))).click()
+                images_preview = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '.thumbs-gallery__big-img')))
+                return images_preview
+            except selenium.common.exceptions.TimeoutException as e:
+                print(f'Функция get_images_preview кинула пустой массив с ошибкой {e}')
+                return []
 
 
 def get_image_on_preview(driver) -> str:
@@ -540,8 +549,8 @@ def get_main_images_urls_from_product_page(driver) -> list[str]:
     return image_urls
 
 
-def add_url_to_scraped(url):
-    with open('scraped_urls.csv', 'a', newline='') as f:
+def add_url_to_scraped(url, scraped_urls_file):
+    with open(scraped_urls_file, 'a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([f'{url}'])
 

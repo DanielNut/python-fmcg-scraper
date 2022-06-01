@@ -34,7 +34,7 @@ from main import (
     YandexDiskWorker,
     set_selenium_driver,
     add_url_to_scraped,
-    get_directories,
+    get_directories_from_url,
     scroll_page_to_bottom_selenium,
     get_product_links_from_page,
     get_product_data,
@@ -106,7 +106,7 @@ class CategoryGoods:
         except selenium.common.exceptions.TimeoutException:
             return []
 
-    def get_goods_by_filter_of_subcategory(self, current_dir, fil, yadisk_worker, driver):
+    def get_goods_by_filter_of_subcategory(self, current_dir, fil, yadisk_worker, driver, scraped_urls_file):
         fil.click()
         last_page = False
         while not last_page:
@@ -120,7 +120,7 @@ class CategoryGoods:
                     if normal_url not in self.scraped_urls:
                         print(f'product url = {normal_url}')
                         save_product_data(normal_url, current_dir, yadisk_worker, driver)
-                        add_url_to_scraped(normal_url)
+                        add_url_to_scraped(normal_url, scraped_urls_file)
                     else:
                         print(f'Такой продукт {normal_url} уже был обработан')
                 driver.get(prev_url)
@@ -131,12 +131,12 @@ class CategoryGoods:
                 print('Функция get_goods_by_filter_of_subcategory вылетела с ошибкой')
                 pass
 
-    def get_goods(self, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker):
+    def get_goods(self, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker, scraped_urls_file):
         subs_urls = self.get_subcategories_for_normal_categories(self.cat_url, driver)
         print('subs_urls = ', subs_urls)
         for sub_url in subs_urls:
             if sub_url not in self.scraped_urls:
-                dirs = get_directories(sub_url)
+                dirs = get_directories_from_url(sub_url)
                 add_dirs_to_fmcg_wildberries(dirs, yadisk_worker)
                 print('dirs = ', dirs)
 
@@ -154,7 +154,7 @@ class CategoryGoods:
                         add_dirs_to_fmcg_wildberries(product_dir, yadisk_worker)
                         full_product_dir = 'FMCG/Wildberries/' + dirs[-1] + '/' + normal_filter_name
                         self.get_goods_by_filter_of_subcategory(full_product_dir, label, yadisk_worker,
-                                                                product_data_driver)
+                                                                product_data_driver, scraped_urls_file)
                         product_data_driver.quit()
                     except IndexError:
                         print('IndexError в функции get_goods')
@@ -190,6 +190,7 @@ def turn_on_next_page_of_product_list(driver) -> bool:
                 By.XPATH, '/html/body/div[1]/main/div[2]/div/div/div[6]/div[1]/div[5]/div/div/a[7]'))).click()
         return True
     except selenium.common.exceptions.TimeoutException:
+        print('Не удалось обнаружить кнопку с переходом на следующую страницу списка товаров')
         return False
 
 
@@ -247,8 +248,8 @@ if __name__ == '__main__':
         category_urls = metacat.get_categories(driver)
         for cat_url in category_urls:
             category_handler = CategoryGoods(cat_url, scraped_urls)
-            category_handler.get_goods(driver, yadisk_worker)
+            category_handler.get_goods(driver, yadisk_worker, scraped_urls_file)
     else:
         category = CategoryGoods(category_url, scraped_urls)
-        category.get_goods(driver, yadisk_worker)
+        category.get_goods(driver, yadisk_worker, scraped_urls_file)
 
