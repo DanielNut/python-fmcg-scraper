@@ -2,8 +2,9 @@ import time
 import json
 import csv
 import re
+import sys
 import typing as tp
-from typing import Tuple, Any
+import argparse
 
 import requests
 import PIL
@@ -14,6 +15,7 @@ import telegram_send
 import io
 import pillow_avif
 
+from typing import Tuple, Any
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -27,9 +29,35 @@ from fake_useragent import UserAgent
 from PIL import Image
 from bs4 import BeautifulSoup
 from tqdm import tqdm
-from main import YandexDiskWorker, set_selenium_driver, add_url_to_scraped, \
-    get_directories, scroll_page_to_bottom_selenium, get_product_links_from_page, get_product_data, \
-    get_product_comments_image_links_selenium, normalize_url, save_product_data, add_url_to_scraped
+
+from main import (
+    YandexDiskWorker,
+    set_selenium_driver,
+    add_url_to_scraped,
+    get_directories,
+    scroll_page_to_bottom_selenium,
+    get_product_links_from_page,
+    get_product_data,
+    get_product_comments_image_links_selenium,
+    normalize_url,
+    save_product_data,
+    add_url_to_scraped,
+)
+
+
+class MetaCategory:
+    def __init__(self, metacat_url: str):
+        self.metacat_url = metacat_url
+        self.scraped_urls = scraped_urls
+
+    def get_categories(self, driver: webdriver.Firefox):
+        driver.get(self.metacat_url)
+        categories_li_list = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '.menu-catalog__list-2'))).find_elements(By.TAG_NAME, 'li')
+        categories_urls = [cat_li.find_element(By.TAG_NAME, 'a').get_attribute('href')
+                           for cat_li in categories_li_list]
+        return categories_urls
 
 
 class CategoryGoods:
@@ -39,7 +67,7 @@ class CategoryGoods:
 
     def get_subcategories_for_normal_categories(self, category_url, driver: webdriver.Firefox) -> list[str]:
         driver.get(category_url)
-        # catalog_li_urls = []
+
         try:
             catalog_page_div = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '#catalog > div.catalog-page__side')))
@@ -47,8 +75,9 @@ class CategoryGoods:
                                                             'sidemenu').find_element(By.TAG_NAME, 'ul')
             catalog_li_tags = catalog_page_ul.find_elements(By.TAG_NAME, 'li')
             catalog_li_urls = [tag.find_element(By.TAG_NAME, 'a').get_attribute('href') for tag in catalog_li_tags]
-        except selenium.common.exceptions.TimeoutException:
-            return []
+        except (selenium.common.exceptions.TimeoutException,
+                selenium.common.exceptions.NoSuchElementException):
+            return [driver.current_url]
         subcategories_urls = []
         for subcat_url in catalog_li_urls:
             try:
@@ -61,7 +90,6 @@ class CategoryGoods:
                                        subcat_li_subs]
             except selenium.common.exceptions.TimeoutException:
                 subcategories_urls.append(subcat_url)
-
         return subcategories_urls
 
     def get_subcategories_for_suspicious_categories(self, category_url: str, driver: webdriver.Firefox) -> list[str]:
@@ -95,11 +123,12 @@ class CategoryGoods:
                         add_url_to_scraped(normal_url)
                     else:
                         print(f'Такой продукт {normal_url} уже был обработан')
-                driver.get_url(prev_url)
+                driver.get(prev_url)
                 scroll_page_to_bottom_selenium(driver)
                 if not turn_on_next_page_of_product_list(driver):
                     last_page = True
             except selenium.common.exceptions.TimeoutException:
+                print('Функция get_goods_by_filter_of_subcategory вылетела с ошибкой')
                 pass
 
     def get_goods(self, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker):
@@ -128,6 +157,7 @@ class CategoryGoods:
                                                                 product_data_driver)
                         product_data_driver.quit()
                     except IndexError:
+                        print('IndexError в функции get_goods')
                         pass
                 add_url_to_scraped(sub_url)
 
@@ -164,21 +194,61 @@ def turn_on_next_page_of_product_list(driver) -> bool:
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='My example explanation')
+
+    parser.add_argument(
+        '-f',
+        '--scraped_urls_file',
+        type=str,
+        default='scraped_urls.csv',
+        help='file which contains urls of products and categories which are already scraped'
+    )
+
+    parser.add_argument(
+        '-u',
+        '--category_url',
+        type=str,
+        default='https://www.wildberries.ru/catalog/pitanie',
+        help='category or metacategory url to be parsed'
+    )
+
+    parser.add_argument(
+        '-m',
+        '--metacategory',
+        action=argparse.BooleanOptionalAction,
+        type=bool,
+        default=True,
+        help='if category is metacategory. This means that it has extra layer'
+    )
+
+    my_namespace = parser.parse_args()
+
+    scraped_urls_file = my_namespace.scraped_urls_file
+
+    category_url = my_namespace.category_url
+
+    is_metacategory = my_namespace.metacategory
+
     yadisk_worker = YandexDiskWorker()
     scraped_urls = set()
-    with open('scraped_urls.csv', 'r') as file:
-        reader = csv.reader(file)
-        for row in reader:
-            if row:
-                scraped_urls.add(row[0])
-
-    laundry_url = 'https://www.wildberries.ru/catalog/dlya-doma/bytovaya-himiya/bytovaya-himiya'
-    laundry_dirs = get_directories(laundry_url)
-    add_dirs_to_fmcg_wildberries(laundry_dirs, yadisk_worker)
-
-    laundry_goods = CategoryGoods(laundry_url, scraped_urls)
+    try:
+        with open(scraped_urls_file, 'r') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                if row:
+                    scraped_urls.add(row[0])
+    except FileNotFoundError:
+        f = open(scraped_urls_file, 'w+')
+        f.close()
     driver = set_selenium_driver()
-    laundry_goods.get_goods(driver, yadisk_worker)
 
+    if is_metacategory:
+        metacat = MetaCategory(category_url)
+        category_urls = metacat.get_categories(driver)
+        for cat_url in category_urls:
+            category_handler = CategoryGoods(cat_url, scraped_urls)
+            category_handler.get_goods(driver, yadisk_worker)
+    else:
+        category = CategoryGoods(category_url, scraped_urls)
+        category.get_goods(driver, yadisk_worker)
 
-subcatalogs_to_parse = {}

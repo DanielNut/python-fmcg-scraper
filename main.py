@@ -108,13 +108,6 @@ class YandexDiskWorker:
             except (OSError, AttributeError):
                 pass
 
-    # def open_image(self, image_path):
-    #     try:
-    #         image = Image.open(image_path)
-    #         return image
-    #     except PIL.UnidentifiedImageError:
-    #         return
-
     def save_comment_image_by_name_of_product(self, image, product_path, product_name, image_name):
         product_name = self.normalize_product_name(product_name)
         image_path = f'{product_path}/{product_name}/comment_images/{image_name}'
@@ -138,10 +131,13 @@ class RequestHandler:
         try:
             time.sleep(1)
             return requests.get(url, timeout=3)
-        except:
-            time.sleep(1)
-            return requests.get(url, timeout=5)
-
+        except requests.exceptions.ConnectionError:
+            try:
+                time.sleep(1)
+                return requests.get(url, timeout=5)
+            except requests.exceptions.ConnectionError:
+                time.sleep(2)
+                return requests.get(url, timeout=5)
 
 # class RequestHandler:
 #     def __init__(self):
@@ -229,7 +225,6 @@ def get_product_comments_image_links_selenium(product_url: str, driver) -> tp.Op
     time.sleep(1)
     #
     scroll_page_to_bottom_selenium(driver)
-    time.sleep(3)
     photos_links = get_photos_links_from_comments_of_product_page_wildberries(driver)
     #
     return photos_links
@@ -441,7 +436,6 @@ def get_visible_slice_of_photos_from_users_photos_scrollbox_on_product_page_wilb
 def get_photos_links_from_comments_of_product_page_wildberries(driver):
     images_preview = get_images_preview(driver)
     links = []
-    stop = False
     time.sleep(1)
     if images_preview:
         image = get_image_on_preview(driver)
@@ -449,7 +443,6 @@ def get_photos_links_from_comments_of_product_page_wildberries(driver):
         amount = 110
         i = 0
         while i < amount:
-            # i = 0
             try:
                 turn_to_next_image_on_preview(driver)
                 i += 1
@@ -457,38 +450,36 @@ def get_photos_links_from_comments_of_product_page_wildberries(driver):
                     selenium.common.exceptions.ElementClickInterceptedException):
                 another_links = get_images_on_preview(driver)
                 links += another_links
+                if not links:
+                    print('Функция get_photos_links_from_comments_of_product_page_wildberries'
+                          ' выдала пустой массив дойдя до конца фоток в комментах')
                 return links
         another_links = get_images_on_preview(driver)
         links += another_links
         return links
+    print('Функция get_photos_links_from_comments_of_product_page_wildberries '
+          'выдала пустой массив без ошибки')
     return []
 
 
 def get_images_preview(driver):
     try:
-        user_photos = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME,
-                                                                                      "comments__user-photos")))
-    except selenium.common.exceptions.TimeoutException:
-        print('Не удалось найти фотки в комментах')
-        return []
-        # driver.find_element(By.CLASS_NAME, "comments__user-photos")
-    # TODO: Сделать webdriverwait
-    photos_div = user_photos.find_element(By.CLASS_NAME, 'swiper-wrapper')
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'swiper-slide'))).click()
-    # WebDriverWait(driver, 10).until(EC.presence_of_element_located(
-    #     photos_div.find_element(By.CLASS_NAME, 'swiper-slide'))).click()
-    # photos_div.find_element(By.CLASS_NAME, 'swiper-slide').click()
-    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH,
+                                            '/html/body/div[1]/main/div[2]/div/div/section[2]/div[3]/div['
+                                            '2]/div/section/div/div/div/div[1]'))).click()
         images_preview = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME,
-                                                                                     'thumbs-gallery__big-img')))
+                                                                                         'thumbs-gallery__big-img')))
         return images_preview
     except selenium.common.exceptions.TimeoutException:
         try:
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'swiper-slide')))[1].click()
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, 'div.swiper-slide:nth-child(1)'))).click()
             images_preview = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, 'thumbs-gallery__big-img')))
             return images_preview
-        except (selenium.common.exceptions.TimeoutException, TypeError):
+        except selenium.common.exceptions.TimeoutException as e:
+            print(f'Функция get_images_preview кинула пустой массив с ошибкой {e}')
             return []
 
 
@@ -605,13 +596,12 @@ def get_images_by_links(images_links):
         images.append(image)
     return images
 
-
-if __name__ == "__main__":
-    scraped_urls = set()
-    with open('scraped_urls.csv', 'r') as file:
-        reader = csv.reader(file)
-        for row in reader:
-            if row:
-                scraped_urls.add(row[0])
-    wb = WildberriesParser(scraped_urls)
-    wb.get_goods()
+# if __name__ == "__main__":
+#     scraped_urls = set()
+#     with open('scraped_urls.csv', 'r') as file:
+#         reader = csv.reader(file)
+#         for row in reader:
+#             if row:
+#                 scraped_urls.add(row[0])
+#     wb = WildberriesParser(scraped_urls)
+#     wb.get_goods()
