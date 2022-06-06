@@ -92,11 +92,14 @@ class CategoryGoods:
                 subcategories_urls.append(subcat_url)
         return subcategories_urls
 
-    def get_subcategories_for_suspicious_categories(self, category_url: str, driver: webdriver.Firefox) -> list[str]:
-        driver.get(category_url)
 
-    def get_filter_labels(self, subcategory_url: str, driver: webdriver.Firefox):
-        driver.get(subcategory_url)
+class SubCategory:
+    def __init__(self, subcat_url, scraped_urls):
+        self.url = subcat_url
+        self.scraped_urls = scraped_urls
+
+    def get_filter_labels(self, driver: webdriver.Firefox):
+        driver.get(self.url)
         try:
             buttons_div = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                 (By.CSS_SELECTOR, '.list_left_xsubject')))
@@ -106,8 +109,7 @@ class CategoryGoods:
         except selenium.common.exceptions.TimeoutException:
             return []
 
-    def get_goods_by_filter_of_subcategory(self, current_dir, fil, yadisk_worker, driver, scraped_urls_file):
-        fil.click()
+    def get_goods_by_filter(self, current_dir, yadisk_worker, driver, scraped_urls_file):
         last_page = False
         while not last_page:
             try:
@@ -131,38 +133,53 @@ class CategoryGoods:
                 print('Функция get_goods_by_filter_of_subcategory вылетела с ошибкой')
                 pass
 
-    def get_goods(self, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker, scraped_urls_file):
-        subs_urls = self.get_subcategories_for_normal_categories(self.cat_url, driver)
-        print('subs_urls = ', subs_urls)
-        for sub_url in subs_urls:
-            if sub_url not in self.scraped_urls:
-                dirs = get_directories_from_url(sub_url)
-                add_dirs_to_fmcg_wildberries(dirs, yadisk_worker)
-                print('dirs = ', dirs)
 
-                filter_labels_count = len(self.get_filter_labels(sub_url, driver))
+def get_goods(category: CategoryGoods, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker, scraped_urls_file):
+    subs_urls = category.get_subcategories_for_normal_categories(category.cat_url, driver)
+    print('subs_urls = ', subs_urls)
+    for sub_url in subs_urls:
+        if sub_url not in category.scraped_urls:
+            subcat = SubCategory(sub_url, category.scraped_urls)
+            get_goods_from_subcategory(subcat, driver, yadisk_worker, scraped_urls_file)
 
-                for i in range(filter_labels_count):
-                    try:
-                        product_data_driver = set_selenium_driver()
-                        filter_labels = self.get_filter_labels(sub_url, product_data_driver)
-                        label = filter_labels[i]
-                        filter_name = label.text
-                        normal_filter_name = normalize_filter_name(filter_name)
-                        product_dir = [dirs[-1] + '/' + normal_filter_name]
-                        print('product_dir = ', product_dir)
-                        add_dirs_to_fmcg_wildberries(product_dir, yadisk_worker)
-                        full_product_dir = 'FMCG/Wildberries/' + dirs[-1] + '/' + normal_filter_name
-                        self.get_goods_by_filter_of_subcategory(full_product_dir, label, yadisk_worker,
-                                                                product_data_driver, scraped_urls_file)
-                        product_data_driver.quit()
-                    except IndexError:
-                        print('IndexError в функции get_goods')
-                        pass
-                add_url_to_scraped(sub_url)
 
-    def get_product_data(self, driver):
+def get_goods_from_subcategory(subcat: SubCategory, driver: webdriver.Firefox, yadisk_worker: YandexDiskWorker, scraped_urls_file):
+    dirs = get_directories_from_url(subcat.url)
+    add_dirs_to_fmcg_wildberries(dirs, yadisk_worker)
+    print('dirs = ', dirs)
+    filter_labels_count = len(subcat.get_filter_labels(driver))
+
+    for i in range(filter_labels_count):
+        try:
+            product_data_driver = set_selenium_driver()
+            filter_labels = subcat.get_filter_labels(product_data_driver)
+            label = filter_labels[i]
+            filter_name = label.text
+            normal_filter_name = normalize_filter_name(filter_name)
+            product_dir = [dirs[-1] + '/' + normal_filter_name]
+            print('product_dir = ', product_dir)
+
+            label.click()
+
+            add_dirs_to_fmcg_wildberries(product_dir, yadisk_worker)
+            full_product_dir = 'FMCG/Wildberries/' + dirs[-1] + '/' + normal_filter_name
+            subcat.get_goods_by_filter(full_product_dir, yadisk_worker,
+                                       product_data_driver, scraped_urls_file)
+            product_data_driver.quit()
+        except IndexError:
+            print('IndexError в функции get_goods')
+            pass
+    add_url_to_scraped(subcat.url, scraped_urls_file)
+
+
+# TODO: make class label to implement logic for getting goods by label in subcategory
+class Label:
+    def __init__(self):
         pass
+
+
+def remove_all_query_symbols_in_url(url):
+    return url.split('?')[0]
 
 
 def add_filter_name_to_dirs(dirs: list[str], filter_name: str):
@@ -215,11 +232,20 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-m',
-        '--metacategory',
+        '--meta-category',
         action=argparse.BooleanOptionalAction,
         type=bool,
-        default=True,
+        default=False,
         help='if category is metacategory. This means that it has extra layer'
+    )
+
+    parser.add_argument(
+        '-s',
+        '--sub-category',
+        action=argparse.BooleanOptionalAction,
+        type=bool,
+        default=False,
+        help='if category is subcategory. This means that it will be processed with subcategory function'
     )
 
     my_namespace = parser.parse_args()
@@ -247,8 +273,8 @@ if __name__ == '__main__':
         metacat = MetaCategory(category_url)
         category_urls = metacat.get_categories(driver)
         for cat_url in category_urls:
-            category_handler = CategoryGoods(cat_url, scraped_urls)
-            category_handler.get_goods(driver, yadisk_worker, scraped_urls_file)
+            category = CategoryGoods(cat_url, scraped_urls)
+            get_goods(category, driver, yadisk_worker, scraped_urls_file)
     else:
         category = CategoryGoods(category_url, scraped_urls)
         category.get_goods(driver, yadisk_worker, scraped_urls_file)

@@ -136,9 +136,11 @@ class RequestHandler:
                 time.sleep(1)
                 return requests.get(url, timeout=5)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
-                time.sleep(2)
-                return requests.get(url, timeout=5)
-
+                try:
+                    time.sleep(2)
+                    return requests.get(url, timeout=5)
+                except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+                    return
 
 # class RequestHandler:
 #     def __init__(self):
@@ -256,8 +258,12 @@ class WildberriesParser:
         #     add_url_to_scraped(section_url)
 
     def get_sections(self):
-        sections_json = self.request_handler.get('https://www.wildberries.ru/gettopmenuinner?lang=ru').json()
-        menu = sections_json['value']['menu']
+        menu = []
+        try:
+            sections_json = self.request_handler.get('https://www.wildberries.ru/gettopmenuinner?lang=ru').json()
+            menu = sections_json['value']['menu']
+        except:
+            pass
         for section in menu:
             url = section['pageUrl']
             if url.startswith('/catalog'):
@@ -372,9 +378,10 @@ def save_product_data(product_url, current_yandex_dir, yandex_disk_worker, drive
     image_number = 1
     for link in image_links:
         image = request_handler.get(link).content
-        yandex_disk_worker.save_comment_image_by_name_of_product(image, info['path'],
+        if image:
+            yandex_disk_worker.save_comment_image_by_name_of_product(image, info['path'],
                                                                  info['name'], f'{image_number}')
-        image_number += 1
+            image_number += 1
 
 
 def get_product_links_from_page(driver) -> list[str]:
